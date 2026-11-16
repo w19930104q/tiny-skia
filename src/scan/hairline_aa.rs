@@ -625,21 +625,27 @@ struct HLineAntiHairBlitter<'a>(&'a mut dyn Blitter);
 impl AntiHairBlitter for HLineAntiHairBlitter<'_> {
     fn draw_cap(&mut self, x: u32, mut fy: FDot16, _: FDot16, mod64: i32) -> FDot16 {
         fy += fdot16::ONE / 2;
-        fy = fy.max(0);
 
-        let y = (fy >> 16) as u32;
-        let a = i32_to_alpha(fy >> 8);
+        // `fy` can be negative when the line is (partially) above the pixmap.
+        // In this case, both rows are clipped out and there is nothing to draw.
+        // We must not clamp `fy` to zero, because the returned value is used
+        // by the subsequent calls.
+        let y = fy >> 16;
+        if y >= 0 {
+            let y = y as u32;
+            let a = i32_to_alpha(fy >> 8);
 
-        // lower line
-        let mut ma = fdot6::small_scale(a, mod64);
-        if ma != 0 {
-            call_hline_blitter(x, Some(y), LENGTH_U32_ONE, ma, self.0);
-        }
+            // lower line
+            let mut ma = fdot6::small_scale(a, mod64);
+            if ma != 0 {
+                call_hline_blitter(x, Some(y), LENGTH_U32_ONE, ma, self.0);
+            }
 
-        // upper line
-        ma = fdot6::small_scale(255 - a, mod64);
-        if ma != 0 {
-            call_hline_blitter(x, y.checked_sub(1), LENGTH_U32_ONE, ma, self.0);
+            // upper line
+            ma = fdot6::small_scale(255 - a, mod64);
+            if ma != 0 {
+                call_hline_blitter(x, y.checked_sub(1), LENGTH_U32_ONE, ma, self.0);
+            }
         }
 
         fy - fdot16::ONE / 2
@@ -652,20 +658,23 @@ impl AntiHairBlitter for HLineAntiHairBlitter<'_> {
         };
 
         fy += fdot16::ONE / 2;
-        fy = fy.max(0);
 
-        let y = (fy >> 16) as u32;
-        let mut a = i32_to_alpha(fy >> 8);
+        // See `draw_cap` for why we must not clamp `fy` to zero.
+        let y = fy >> 16;
+        if y >= 0 {
+            let y = y as u32;
+            let mut a = i32_to_alpha(fy >> 8);
 
-        // lower line
-        if a != 0 {
-            call_hline_blitter(x, Some(y), count, a, self.0);
-        }
+            // lower line
+            if a != 0 {
+                call_hline_blitter(x, Some(y), count, a, self.0);
+            }
 
-        // upper line
-        a = 255 - a;
-        if a != 0 {
-            call_hline_blitter(x, y.checked_sub(1), count, a, self.0);
+            // upper line
+            a = 255 - a;
+            if a != 0 {
+                call_hline_blitter(x, y.checked_sub(1), count, a, self.0);
+            }
         }
 
         fy - fdot16::ONE / 2
@@ -677,13 +686,25 @@ struct HorishAntiHairBlitter<'a>(&'a mut dyn Blitter);
 impl AntiHairBlitter for HorishAntiHairBlitter<'_> {
     fn draw_cap(&mut self, x: u32, mut fy: FDot16, dy: FDot16, mod64: i32) -> FDot16 {
         fy += fdot16::ONE / 2;
-        fy = fy.max(0);
 
-        let lower_y = (fy >> 16) as u32;
-        let a = i32_to_alpha(fy >> 8);
-        let a0 = fdot6::small_scale(255 - a, mod64);
-        let a1 = fdot6::small_scale(a, mod64);
-        self.0.blit_anti_v2(x, lower_y.max(1) - 1, a0, a1);
+        // `fy` can be negative when the line is (partially) above the pixmap.
+        // In this case, both rows are clipped out and there is nothing to draw.
+        // We must not clamp `fy` to zero, because the returned value is used
+        // by the subsequent calls.
+        let lower_y = fy >> 16;
+        if lower_y >= 0 {
+            let a = i32_to_alpha(fy >> 8);
+            let a1 = fdot6::small_scale(a, mod64);
+            if lower_y == 0 {
+                // The upper row is above the pixmap; draw only the lower one.
+                if a1 != 0 {
+                    self.0.blit_v(x, 0, LENGTH_U32_ONE, a1);
+                }
+            } else {
+                let a0 = fdot6::small_scale(255 - a, mod64);
+                self.0.blit_anti_v2(x, lower_y as u32 - 1, a0, a1);
+            }
+        }
 
         fy + dy - fdot16::ONE / 2
     }
@@ -693,10 +714,19 @@ impl AntiHairBlitter for HorishAntiHairBlitter<'_> {
 
         fy += fdot16::ONE / 2;
         loop {
-            fy = fy.max(0);
-            let lower_y = (fy >> 16) as u32;
-            let a = i32_to_alpha(fy >> 8);
-            self.0.blit_anti_v2(x, lower_y.max(1) - 1, 255 - a, a);
+            // See `draw_cap` for why we must not clamp `fy` to zero.
+            let lower_y = fy >> 16;
+            if lower_y >= 0 {
+                let a = i32_to_alpha(fy >> 8);
+                if lower_y == 0 {
+                    // The upper row is above the pixmap; draw only the lower one.
+                    if a != 0 {
+                        self.0.blit_v(x, 0, LENGTH_U32_ONE, a);
+                    }
+                } else {
+                    self.0.blit_anti_v2(x, lower_y as u32 - 1, 255 - a, a);
+                }
+            }
             fy += dy;
 
             x += 1;
@@ -715,19 +745,28 @@ impl AntiHairBlitter for VLineAntiHairBlitter<'_> {
     fn draw_cap(&mut self, y: u32, mut fx: FDot16, dx: FDot16, mod64: i32) -> FDot16 {
         debug_assert!(dx == 0);
         fx += fdot16::ONE / 2;
-        fx = fx.max(0);
 
-        let x = (fx >> 16) as u32;
-        let a = i32_to_alpha(fx >> 8);
+        // `fx` can be negative when the line is (partially) left of the pixmap.
+        // In this case, both columns are clipped out and there is nothing to draw.
+        // We must not clamp `fx` to zero, because the returned value is used
+        // by the subsequent calls.
+        let x = fx >> 16;
+        if x >= 0 {
+            let x = x as u32;
+            let a = i32_to_alpha(fx >> 8);
 
-        let mut ma = fdot6::small_scale(a, mod64);
-        if ma != 0 {
-            self.0.blit_v(x, y, LENGTH_U32_ONE, ma);
-        }
+            let mut ma = fdot6::small_scale(a, mod64);
+            if ma != 0 {
+                self.0.blit_v(x, y, LENGTH_U32_ONE, ma);
+            }
 
-        ma = fdot6::small_scale(255 - a, mod64);
-        if ma != 0 {
-            self.0.blit_v(x.max(1) - 1, y, LENGTH_U32_ONE, ma);
+            // The left column is clipped out when `x` is zero.
+            if x > 0 {
+                ma = fdot6::small_scale(255 - a, mod64);
+                if ma != 0 {
+                    self.0.blit_v(x - 1, y, LENGTH_U32_ONE, ma);
+                }
+            }
         }
 
         fx - fdot16::ONE / 2
@@ -741,18 +780,24 @@ impl AntiHairBlitter for VLineAntiHairBlitter<'_> {
         };
 
         fx += fdot16::ONE / 2;
-        fx = fx.max(0);
 
-        let x = (fx >> 16) as u32;
-        let mut a = i32_to_alpha(fx >> 8);
+        // See `draw_cap` for why we must not clamp `fx` to zero.
+        let x = fx >> 16;
+        if x >= 0 {
+            let x = x as u32;
+            let mut a = i32_to_alpha(fx >> 8);
 
-        if a != 0 {
-            self.0.blit_v(x, y, height, a);
-        }
+            if a != 0 {
+                self.0.blit_v(x, y, height, a);
+            }
 
-        a = 255 - a;
-        if a != 0 {
-            self.0.blit_v(x.max(1) - 1, y, height, a);
+            // The left column is clipped out when `x` is zero.
+            if x > 0 {
+                a = 255 - a;
+                if a != 0 {
+                    self.0.blit_v(x - 1, y, height, a);
+                }
+            }
         }
 
         fx - fdot16::ONE / 2
@@ -764,16 +809,25 @@ struct VertishAntiHairBlitter<'a>(&'a mut dyn Blitter);
 impl AntiHairBlitter for VertishAntiHairBlitter<'_> {
     fn draw_cap(&mut self, y: u32, mut fx: FDot16, dx: FDot16, mod64: i32) -> FDot16 {
         fx += fdot16::ONE / 2;
-        fx = fx.max(0);
 
-        let x = (fx >> 16) as u32;
-        let a = i32_to_alpha(fx >> 8);
-        self.0.blit_anti_h2(
-            x.max(1) - 1,
-            y,
-            fdot6::small_scale(255 - a, mod64),
-            fdot6::small_scale(a, mod64),
-        );
+        // `fx` can be negative when the line is (partially) left of the pixmap.
+        // In this case, both columns are clipped out and there is nothing to draw.
+        // We must not clamp `fx` to zero, because the returned value is used
+        // by the subsequent calls.
+        let x = fx >> 16;
+        if x >= 0 {
+            let a = i32_to_alpha(fx >> 8);
+            let a1 = fdot6::small_scale(a, mod64);
+            if x == 0 {
+                // The left column is left of the pixmap; draw only the right one.
+                if a1 != 0 {
+                    self.0.blit_v(0, y, LENGTH_U32_ONE, a1);
+                }
+            } else {
+                let a0 = fdot6::small_scale(255 - a, mod64);
+                self.0.blit_anti_h2(x as u32 - 1, y, a0, a1);
+            }
+        }
 
         fx + dx - fdot16::ONE / 2
     }
@@ -783,10 +837,19 @@ impl AntiHairBlitter for VertishAntiHairBlitter<'_> {
 
         fx += fdot16::ONE / 2;
         loop {
-            fx = fx.max(0);
-            let x = (fx >> 16) as u32;
-            let a = i32_to_alpha(fx >> 8);
-            self.0.blit_anti_h2(x.max(1) - 1, y, 255 - a, a);
+            // See `draw_cap` for why we must not clamp `fx` to zero.
+            let x = fx >> 16;
+            if x >= 0 {
+                let a = i32_to_alpha(fx >> 8);
+                if x == 0 {
+                    // The left column is left of the pixmap; draw only the right one.
+                    if a != 0 {
+                        self.0.blit_v(0, y, LENGTH_U32_ONE, a);
+                    }
+                } else {
+                    self.0.blit_anti_h2(x as u32 - 1, y, 255 - a, a);
+                }
+            }
             fx += dx;
 
             y += 1;

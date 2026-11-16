@@ -255,3 +255,91 @@ fn clipped_circle_aa() {
     let expected = Pixmap::load_png("tests/images/hairline/clipped-circle-aa.png").unwrap();
     assert_eq!(pixmap, expected);
 }
+
+// A hairline circle that slightly exceeds the canvas on all sides.
+// The anti-aliased fringes that fall outside of the canvas must be clipped,
+// not shifted one pixel into the canvas.
+// https://github.com/linebender/tiny-skia/issues/189
+#[test]
+fn clipped_circle_09_aa() {
+    let mut pixmap = Pixmap::new(6, 6).unwrap();
+
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(255, 255, 255, 255);
+    paint.anti_alias = true;
+
+    let mut stroke = Stroke::default();
+    stroke.width = 0.9;
+
+    let path = PathBuilder::from_circle(3.0, 3.0, 2.6).unwrap();
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+
+    let expected = Pixmap::load_png("tests/images/hairline/clipped-circle-09-aa.png").unwrap();
+    assert_eq!(pixmap, expected);
+}
+
+// A mostly horizontal hairline crossing the top edge of the canvas
+// at non-integer coordinates.
+#[test]
+fn clip_horish_top_aa() {
+    let mut pixmap = Pixmap::new(10, 10).unwrap();
+
+    let mut pb = PathBuilder::new();
+    pb.move_to(1.3, -1.7);
+    pb.line_to(8.6, 2.4);
+    let path = pb.finish().unwrap();
+
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(50, 127, 150, 200);
+    paint.anti_alias = true;
+
+    let mut stroke = Stroke::default();
+    stroke.width = 0.0;
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+
+    let expected = Pixmap::load_png("tests/images/hairline/clip-horish-top-aa.png").unwrap();
+    assert_eq!(pixmap, expected);
+}
+
+// A mostly vertical hairline crossing the left edge of the canvas
+// at non-integer coordinates.
+#[test]
+fn clip_vertish_left_aa() {
+    let mut pixmap = Pixmap::new(10, 10).unwrap();
+
+    let mut pb = PathBuilder::new();
+    pb.move_to(-1.7, 1.3);
+    pb.line_to(2.4, 8.6);
+    let path = pb.finish().unwrap();
+
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(50, 127, 150, 200);
+    paint.anti_alias = true;
+
+    let mut stroke = Stroke::default();
+    stroke.width = 0.0;
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+
+    let expected = Pixmap::load_png("tests/images/hairline/clip-vertish-left-aa.png").unwrap();
+    assert_eq!(pixmap, expected);
+}
+
+// A hairline produced by a scale transform (1.0 * 0.1 = 0.1px width)
+// on a path that slightly exceeds the canvas on all sides.
+#[test]
+fn scaled_clipped_circle_aa() {
+    let mut pixmap = Pixmap::new(6, 6).unwrap();
+
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(255, 255, 255, 255);
+    paint.anti_alias = true;
+
+    let mut stroke = Stroke::default();
+    stroke.width = 1.0;
+
+    let path = PathBuilder::from_circle(30.0, 30.0, 26.0).unwrap();
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::from_scale(0.1, 0.1), None);
+
+    let expected = Pixmap::load_png("tests/images/hairline/scaled-clipped-circle-aa.png").unwrap();
+    assert_eq!(pixmap, expected);
+}

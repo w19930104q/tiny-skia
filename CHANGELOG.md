@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- Fixed anti-aliased hairline coverage computation when a line is partially
+  above or to the left of the canvas. The offscreen fringe is now clipped
+  instead of being shifted one pixel into the canvas, which produced garbled
+  output for thin strokes at non-integer coordinates or under scale transforms.
 
 ## [0.12.0] - 2026-02-02
 ### Fixed
