@@ -136,7 +136,7 @@ impl RadialGradient {
             _ => {}
         }
 
-        transform.invert()?;
+        super::invert_shader_transform(transform)?;
 
         let length = (start_point - end_point).length();
         if !length.is_finite() {

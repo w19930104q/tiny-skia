@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- Pattern and gradient shaders now reject singular and non-finite transforms
+  instead of rendering garbled output. Scale-translate matrices with a zero
+  scale component were previously inverted to infinities and slipped through
+  the invertibility check.
+- Pattern sampling with `Bilinear`/`Bicubic` filtering under extreme scaling
+  no longer produces transparent or NaN-corrupted output. When the inverse
+  transform maps coordinates outside the pipeline's safe f32 integer range,
+  the sampler falls back to nearest-neighbor filtering, which truncates and
+  clamps coordinates and therefore stays correct in this regime.
 
 ## [0.12.0] - 2026-02-02
 ### Fixed

@@ -112,7 +112,7 @@ impl Gradient {
     ) -> bool {
         p.push(pipeline::Stage::SeedShader);
 
-        let ts = match self.transform.invert() {
+        let ts = match super::invert_shader_transform(self.transform) {
             Some(v) => v,
             None => {
                 log::warn!("failed to invert a gradient transform. Nothing will be rendered");

@@ -11,6 +11,8 @@ use crate::{BlendMode, ColorSpace, PixmapRef, Shader, SpreadMode, Transform};
 use crate::pipeline;
 use crate::pipeline::RasterPipelineBuilder;
 
+use super::{invert_shader_transform, is_filterable};
+
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use tiny_skia_path::NoStdFloat;
 
@@ -95,7 +97,7 @@ impl<'a> Pattern<'a> {
     }
 
     pub(crate) fn push_stages(&self, cs: ColorSpace, p: &mut RasterPipelineBuilder) -> bool {
-        let ts = match self.transform.invert() {
+        let ts = match invert_shader_transform(self.transform) {
             Some(v) => v,
             None => {
                 log::warn!("failed to invert a pattern transform. Nothing will be rendered");
@@ -120,6 +122,18 @@ impl<'a> Pattern<'a> {
                     quality = FilterQuality::Nearest;
                 }
             }
+        }
+
+        // The raster pipeline stores coordinates in f32 and derives interpolation
+        // weights via `fract`/`floor`, which rely on a float->int conversion that
+        // saturates once the absolute coordinate reaches roughly i32::MAX.
+        // At extreme (down-)scales the inverse-transformed coordinates leave the
+        // representable integer range, producing NaN/garbled weights (and sometimes
+        // fully transparent output). Nearest neighbor only truncates and clamps the
+        // coordinates, so it stays correct in this regime; this mirrors Skia's
+        // fallback to a non-interpolating filter for extreme matrices.
+        if quality != FilterQuality::Nearest && !is_filterable(ts) {
+            quality = FilterQuality::Nearest;
         }
 
         // TODO: minimizing scale via mipmap

@@ -251,3 +251,117 @@ fn filter_bicubic() {
     let expected = Pixmap::load_png("tests/images/pattern/filter-bicubic.png").unwrap();
     assert_eq!(pixmap, expected);
 }
+
+// Extreme/singular transform handling.
+//
+// The raster pipeline derives sampler indices and interpolation weights from
+// f32 coordinates with saturating float-to-int conversions. Singular matrices
+// must be rejected and extreme scales must fall back to the nearest-neighbor
+// sampler instead of producing NaN weights (which rendered as fully
+// transparent) or garbled pixels. See `shaders::invert_shader_transform` and
+// `shaders::is_filterable`.
+
+fn quad_pixmap() -> Pixmap {
+    let mut pm = Pixmap::new(8, 8).unwrap();
+    let colors = [(200u8, 50u8, 50u8), (50, 200, 50), (50, 50, 200), (200, 200, 50)];
+    for (i, (r, g, b)) in colors.iter().enumerate() {
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(*r, *g, *b, 255);
+        let x = (i % 2) as f32 * 4.0;
+        let y = (i / 2) as f32 * 4.0;
+        pm.fill_rect(
+            Rect::from_ltrb(x, y, x + 4.0, y + 4.0).unwrap(),
+            &paint,
+            Transform::identity(),
+            None,
+        );
+    }
+    pm
+}
+
+fn render_pattern(ts: Transform, quality: FilterQuality, force_hq: bool) -> Pixmap {
+    let src = quad_pixmap();
+    let mut paint = Paint::default();
+    paint.anti_alias = false;
+    paint.force_hq_pipeline = force_hq;
+    paint.shader = Pattern::new(src.as_ref(), SpreadMode::Pad, quality, 1.0, ts);
+
+    let path = PathBuilder::from_rect(Rect::from_ltrb(0.0, 0.0, 32.0, 32.0).unwrap());
+    let mut pixmap = Pixmap::new(32, 32).unwrap();
+    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+    pixmap
+}
+
+#[test]
+fn extreme_downscale_does_not_render_transparent() {
+    // Used to produce all-zero output because `fract` overflowed and the
+    // bilinear/bicubic weights became NaN.
+    for quality in [FilterQuality::Bilinear, FilterQuality::Bicubic] {
+        let pixmap = render_pattern(Transform::from_scale(1e-30, 1e-30), quality, false);
+        assert!(pixmap.data().iter().any(|&b| b != 0), "{quality:?} produced empty output");
+    }
+}
+
+#[test]
+fn extreme_upscale_does_not_render_transparent() {
+    for quality in [
+        FilterQuality::Nearest,
+        FilterQuality::Bilinear,
+        FilterQuality::Bicubic,
+    ] {
+        let pixmap = render_pattern(Transform::from_scale(1e20, 1e20), quality, false);
+        assert!(pixmap.data().iter().any(|&b| b != 0), "{quality:?} produced empty output");
+    }
+}
+
+#[test]
+fn singular_pattern_transform_renders_nothing() {
+    let cases = [
+        Transform::from_scale(0.0, 1.0),
+        Transform::from_scale(1.0, 0.0),
+        Transform::from_row(1.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+        Transform::from_scale(f32::INFINITY, 1.0),
+        Transform::from_scale(f32::NAN, 1.0),
+    ];
+
+    for ts in cases {
+        for quality in [
+            FilterQuality::Nearest,
+            FilterQuality::Bilinear,
+            FilterQuality::Bicubic,
+        ] {
+            let pixmap = render_pattern(ts, quality, false);
+            assert!(
+                pixmap.data().iter().all(|&b| b == 0),
+                "{ts:?} {quality:?} must not draw anything"
+            );
+        }
+    }
+}
+
+#[test]
+fn extreme_scales_force_hq_matches_auto() {
+    for scale in [1e-30f32, 1e-20, 1e-6, 1e6, 1e20] {
+        let ts = Transform::from_scale(scale, scale);
+        for quality in [
+            FilterQuality::Nearest,
+            FilterQuality::Bilinear,
+            FilterQuality::Bicubic,
+        ] {
+            assert_eq!(
+                render_pattern(ts, quality, false).data(),
+                render_pattern(ts, quality, true).data(),
+                "scale={scale} quality={quality:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn moderate_scale_keeps_interpolation() {
+    // The fallback must only kick in past the safe coordinate range; a regular
+    // upscale must still go through bilinear interpolation.
+    let nearest = render_pattern(Transform::from_scale(2.5, 2.5), FilterQuality::Nearest, false);
+    let bilinear = render_pattern(Transform::from_scale(2.5, 2.5), FilterQuality::Bilinear, false);
+    assert_ne!(nearest.data(), bilinear.data());
+}

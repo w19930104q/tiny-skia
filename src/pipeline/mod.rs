@@ -370,10 +370,21 @@ impl RasterPipelineBuilder {
         self.stages.push(stage);
     }
 
+    /// Pushes a transform stage.
+    ///
+    /// The transform must be finite. Non-finite matrices cannot be represented
+    /// by the pipeline and are silently skipped, as they can only originate from
+    /// a shader whose own validation failed to reject a singular/non-finite
+    /// matrix.
     pub fn push_transform(&mut self, ts: Transform) {
         if ts.is_finite() && !ts.is_identity() {
             self.stages.push(Stage::Transform);
             self.ctx.transform = ts;
+        } else {
+            debug_assert!(
+                ts.is_finite(),
+                "shader transforms must be validated as finite before reaching the pipeline"
+            );
         }
     }
 

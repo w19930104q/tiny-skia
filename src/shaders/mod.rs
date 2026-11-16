@@ -22,6 +22,50 @@ use crate::{Color, ColorSpace, Transform};
 
 use crate::pipeline::RasterPipelineBuilder;
 
+/// The largest absolute coordinate the raster pipeline can process reliably.
+///
+/// Pipeline stages derive integer indices and interpolation weights from f32
+/// coordinates using float-to-int conversions, which saturate at `i32::MAX`,
+/// and `fract`/`floor` math, which silently breaks once the value can no longer
+/// represent a fractional part. Staying below 2^24 keeps every integer exactly
+/// representable in f32 and leaves ample room for the pipeline's intermediate
+/// math (neighbor offsets, tiling, ...).
+const MAX_SAFE_COORD: f32 = (1u32 << 24) as f32;
+
+/// Inverts a shader transform, rejecting singular and non-finite matrices.
+///
+/// `Transform::invert` alone is not sufficient here: scale-translate matrices
+/// with a zero scale component invert to infinities instead of producing
+/// `None`, and non-finite inputs can slip through as well. The pipeline has no
+/// way to render such transforms, so callers treat `None` as "draw nothing",
+/// matching the existing non-invertible-transform behavior.
+pub(crate) fn invert_shader_transform(ts: Transform) -> Option<Transform> {
+    if !ts.is_finite() {
+        return None;
+    }
+
+    let inv = ts.invert()?;
+    if inv.is_finite() {
+        Some(inv)
+    } else {
+        None
+    }
+}
+
+/// Checks whether an (already inverted) shader transform can feed the
+/// interpolating (bilinear/bicubic) sampler stages without degenerating.
+///
+/// When the matrix maps device coordinates outside the safe integer range,
+/// the weight/index math produces NaNs or saturated, meaningless values.
+/// Such matrices must fall back to the nearest-neighbor sampler, which only
+/// truncates and clamps its coordinates and therefore degrades gracefully.
+pub(crate) fn is_filterable(inv_ts: Transform) -> bool {
+    debug_assert!(inv_ts.is_finite());
+
+    let (sx, sy) = inv_ts.get_scale();
+    sx.is_finite() && sy.is_finite() && sx < MAX_SAFE_COORD && sy < MAX_SAFE_COORD
+}
+
 /// A shader spreading mode.
 #[derive(Copy, Clone, Default, PartialEq, Debug)]
 pub enum SpreadMode {

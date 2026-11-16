@@ -589,3 +589,58 @@ fn sweep_gradient_full() {
     let expected = Pixmap::load_png("tests/images/gradients/sweep-gradient-full.png").unwrap();
     assert_eq!(pixmap, expected);
 }
+
+#[test]
+fn singular_gradient_transform_is_rejected() {
+    let stops = vec![
+        GradientStop::new(0.0, Color::from_rgba8(255, 0, 0, 255)),
+        GradientStop::new(1.0, Color::from_rgba8(0, 0, 255, 255)),
+    ];
+
+    let singular = [
+        Transform::from_scale(0.0, 1.0),
+        Transform::from_scale(1.0, 0.0),
+        Transform::from_row(1.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+        Transform::from_scale(f32::INFINITY, 1.0),
+        Transform::from_scale(f32::NAN, 1.0),
+    ];
+
+    for ts in singular {
+        assert!(
+            LinearGradient::new(
+                Point::from_xy(0.0, 0.0),
+                Point::from_xy(10.0, 0.0),
+                stops.clone(),
+                SpreadMode::Pad,
+                ts,
+            )
+            .is_none(),
+            "linear {ts:?} must be rejected"
+        );
+        assert!(
+            RadialGradient::new(
+                Point::from_xy(10.0, 10.0),
+                5.0,
+                Point::from_xy(10.0, 10.0),
+                0.0,
+                stops.clone(),
+                SpreadMode::Pad,
+                ts,
+            )
+            .is_none(),
+            "radial {ts:?} must be rejected"
+        );
+        assert!(
+            SweepGradient::new(
+                Point::from_xy(10.0, 10.0),
+                0.0,
+                90.0,
+                stops.clone(),
+                SpreadMode::Pad,
+                ts,
+            )
+            .is_none(),
+            "sweep {ts:?} must be rejected"
+        );
+    }
+}

@@ -79,7 +79,7 @@ impl LinearGradient {
             }
         }
 
-        transform.invert()?;
+        super::invert_shader_transform(transform)?;
 
         let unit_ts = points_to_unit_ts(start, end)?;
         Some(Shader::LinearGradient(LinearGradient {

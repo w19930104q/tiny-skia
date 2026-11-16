@@ -43,7 +43,7 @@ impl SweepGradient {
             [stop] => return Some(Shader::SolidColor(stop.color)),
             _ => (),
         }
-        transform.invert()?;
+        super::invert_shader_transform(transform)?;
         if start_angle.is_nearly_equal_within_tolerance(end_angle, DEGENERATE_THRESHOLD) {
             if mode == SpreadMode::Pad && end_angle > DEGENERATE_THRESHOLD {
                 // In this case, the first color is repeated from 0 to the angle, then a hardstop
